@@ -138,3 +138,121 @@ describe('KalyBotSplitter: split and sweep', () => {
 		await expect(splitter.sweep(token)).to.be.revertedWithCustomError(splitter, 'TokenNotAccepted');
 	});
 });
+
+describe('KalyBotSplitter: owner and boss controls', () => {
+	it('lets the owner change terms, logged as TermsChanged', async () => {
+		const { splitter } = await loadFixture(deployFixture);
+		await expect(splitter.setTerms(5000, 6000n * USD))
+			.to.emit(splitter, 'TermsChanged')
+			.withArgs(6000, 5000, 5000n * USD, 6000n * USD);
+		expect(await splitter.frostyBps()).to.equal(5000);
+		expect(await splitter.frostyCapUsd()).to.equal(6000n * USD);
+	});
+
+	it('refuses terms from anyone but the owner', async () => {
+		const { splitter, frosty, boss } = await loadFixture(deployFixture);
+		for (const signer of [frosty, boss]) {
+			await expect(splitter.connect(signer).setTerms(9000, 9000n * USD))
+				.to.be.revertedWithCustomError(splitter, 'OwnableUnauthorizedAccount');
+		}
+	});
+
+	it('refuses a cap below what Frosty was already paid, or bps over 100%', async () => {
+		const { splitter, usdt, payer } = await loadFixture(deployFixture);
+		await splitter.connect(payer).split(await usdt.getAddress(), USDT(1000n)); // 600 paid
+		await expect(splitter.setTerms(6000, 599n * USD)).to.be.revertedWithCustomError(splitter, 'CapBelowPaid');
+		await expect(splitter.setTerms(10_001, 5000n * USD)).to.be.revertedWithCustomError(splitter, 'BpsTooHigh');
+		await expect(splitter.setTerms(6000, 600n * USD)).to.emit(splitter, 'TermsChanged');
+	});
+
+	it('raising the cap after it was reached resumes Frosty\'s share on new payments only', async () => {
+		const { splitter, usdt, frosty, payer } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await splitter.connect(payer).split(token, USDT(10_000n)); // cap reached: 5,000 paid
+		const frostyAtCap = await usdt.balanceOf(frosty.address);
+		expect(frostyAtCap).to.equal(USDT(5000n));
+		await splitter.setTerms(6000, 5100n * USD);
+		await splitter.connect(payer).split(token, USDT(100n)); // 60 fits under the new cap
+		expect(await usdt.balanceOf(frosty.address)).to.equal(frostyAtCap + USDT(60n));
+		expect(await splitter.frostyPaidUsd()).to.equal(5060n * USD);
+	});
+
+	it('lets the owner change Frosty\'s payout address', async () => {
+		const { splitter, stranger } = await loadFixture(deployFixture);
+		await expect(splitter.setFrostyPayee(stranger.address)).to.emit(splitter, 'FrostyPayeeSet');
+		expect(await splitter.frostyPayee()).to.equal(stranger.address);
+	});
+
+	it('lets only the boss change the boss payout address — not the owner', async () => {
+		const { splitter, owner, boss, stranger } = await loadFixture(deployFixture);
+		await expect(splitter.connect(owner).setBossPayee(stranger.address))
+			.to.be.revertedWithCustomError(splitter, 'NotBossPayee');
+		await expect(splitter.connect(boss).setBossPayee(stranger.address))
+			.to.emit(splitter, 'BossPayeeSet')
+			.withArgs(boss.address, stranger.address);
+		expect(await splitter.bossPayee()).to.equal(stranger.address);
+	});
+
+	it('rejects zero payout addresses', async () => {
+		const { splitter, boss } = await loadFixture(deployFixture);
+		await expect(splitter.setFrostyPayee(ethers.ZeroAddress)).to.be.revertedWithCustomError(splitter, 'ZeroAddress');
+		await expect(splitter.connect(boss).setBossPayee(ethers.ZeroAddress)).to.be.revertedWithCustomError(splitter, 'ZeroAddress');
+	});
+
+	it('rescues a stray non-revenue token to the boss only, never a revenue token', async () => {
+		const { splitter, usdt, boss, payer } = await loadFixture(deployFixture);
+		const Mock = await ethers.getContractFactory('MockERC20');
+		const stray = await Mock.deploy('Stray', 'STR', 18);
+		await stray.mint(await splitter.getAddress(), KUSD(5n));
+		await expect(splitter.rescueToken(await stray.getAddress(), KUSD(5n)))
+			.to.emit(splitter, 'TokenRescued')
+			.withArgs(await stray.getAddress(), boss.address, KUSD(5n));
+		expect(await stray.balanceOf(boss.address)).to.equal(KUSD(5n));
+		await usdt.connect(payer).transfer(await splitter.getAddress(), USDT(5n));
+		await expect(splitter.rescueToken(await usdt.getAddress(), USDT(5n)))
+			.to.be.revertedWithCustomError(splitter, 'CannotRescueRevenueToken');
+	});
+
+	it('blocks a token that re-enters split()', async () => {
+		const { splitter, payer } = await loadFixture(deployFixture);
+		const Reentrant = await ethers.getContractFactory('ReentrantToken');
+		const evil = await Reentrant.deploy();
+		await splitter.addToken(await evil.getAddress(), 18);
+		await evil.setTarget(await splitter.getAddress());
+		await evil.mint(payer.address, KUSD(10n));
+		await evil.connect(payer).approve(await splitter.getAddress(), ethers.MaxUint256);
+		await expect(splitter.connect(payer).split(await evil.getAddress(), KUSD(1n)))
+			.to.be.revertedWithCustomError(splitter, 'ReentrancyGuardReentrantCall');
+	});
+
+	it('transfers ownership in two steps', async () => {
+		const { splitter, boss } = await loadFixture(deployFixture);
+		await splitter.transferOwnership(boss.address);
+		expect(await splitter.pendingOwner()).to.equal(boss.address);
+		await splitter.connect(boss).acceptOwnership();
+		expect(await splitter.owner()).to.equal(boss.address);
+	});
+
+	it('keeps setFrostyPayee and rescueToken owner-only', async () => {
+		const { splitter, usdt, boss, stranger } = await loadFixture(deployFixture);
+		for (const signer of [stranger, boss]) {
+			await expect(splitter.connect(signer).setFrostyPayee(stranger.address))
+				.to.be.revertedWithCustomError(splitter, 'OwnableUnauthorizedAccount').withArgs(signer.address);
+			await expect(splitter.connect(signer).rescueToken(await usdt.getAddress(), 1n))
+				.to.be.revertedWithCustomError(splitter, 'OwnableUnauthorizedAccount').withArgs(signer.address);
+		}
+	});
+
+	it('rescues a removed token\'s stranded balance to the boss', async () => {
+		const { splitter, usdt, frosty, boss, payer } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await splitter.removeToken(token);
+		await usdt.connect(payer).transfer(await splitter.getAddress(), USDT(7n));
+		const frostyBefore = await usdt.balanceOf(frosty.address);
+		const bossBefore = await usdt.balanceOf(boss.address);
+		await splitter.rescueToken(token, USDT(7n));
+		expect(await usdt.balanceOf(boss.address)).to.equal(bossBefore + USDT(7n));
+		expect(await usdt.balanceOf(frosty.address)).to.equal(frostyBefore);
+		expect(await usdt.balanceOf(await splitter.getAddress())).to.equal(0n);
+	});
+});

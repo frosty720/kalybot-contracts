@@ -34,12 +34,19 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	event Split(address indexed token, uint256 amount, uint256 toFrosty, uint256 toBoss, uint256 frostyPaidUsd, uint8 source);
 	event TokenAdded(address indexed token, uint8 decimals);
 	event TokenRemoved(address indexed token);
+	event TermsChanged(uint16 oldBps, uint16 newBps, uint256 oldCapUsd, uint256 newCapUsd);
+	event FrostyPayeeSet(address oldPayee, address newPayee);
+	event BossPayeeSet(address oldPayee, address newPayee);
+	event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
 	error ZeroAddress();
 	error BpsTooHigh();
 	error DecimalsTooHigh();
 	error TokenNotAccepted();
 	error NothingToSweep();
+	error CapBelowPaid();
+	error NotBossPayee();
+	error CannotRescueRevenueToken();
 
 	constructor(address owner_, address frostyPayee_, address bossPayee_, uint16 frostyBps_, uint256 frostyCapUsd_)
 		Ownable(owner_)
@@ -82,6 +89,38 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	function removeToken(address token) external onlyOwner {
 		usdScale[token] = 0;
 		emit TokenRemoved(token);
+	}
+
+	/// @notice Change Frosty's share and cap. Logged on-chain and shown in the super-admin tracker.
+	///         The cap can never drop below what Frosty has already been paid.
+	function setTerms(uint16 bps, uint256 capUsd) external onlyOwner {
+		if (bps > BPS) revert BpsTooHigh();
+		if (capUsd < frostyPaidUsd) revert CapBelowPaid();
+		emit TermsChanged(frostyBps, bps, frostyCapUsd, capUsd);
+		frostyBps = bps;
+		frostyCapUsd = capUsd;
+	}
+
+	function setFrostyPayee(address payee) external onlyOwner {
+		if (payee == address(0)) revert ZeroAddress();
+		emit FrostyPayeeSet(frostyPayee, payee);
+		frostyPayee = payee;
+	}
+
+	/// @notice Only the boss's current payout address can change it — the owner cannot redirect the boss's share.
+	function setBossPayee(address payee) external {
+		if (msg.sender != bossPayee) revert NotBossPayee();
+		if (payee == address(0)) revert ZeroAddress();
+		emit BossPayeeSet(bossPayee, payee);
+		bossPayee = payee;
+	}
+
+	/// @notice Return a non-revenue token sent here by mistake. Always goes to the boss, so the
+	///         owner can never use rescue to take revenue.
+	function rescueToken(address token, uint256 amount) external onlyOwner {
+		if (usdScale[token] != 0) revert CannotRescueRevenueToken();
+		IERC20(token).safeTransfer(bossPayee, amount);
+		emit TokenRescued(token, bossPayee, amount);
 	}
 
 	// ── Internal ───────────────────────────────────────────────────────────
