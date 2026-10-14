@@ -6,12 +6,12 @@ import {IKalyBotSplitter} from '../interfaces/IKalyBotSplitter.sol';
 
 /// @notice Test-only token that tries to re-enter split() from inside transferFrom.
 contract ReentrantToken is ERC20 {
-	IKalyBotSplitter public target;
+	IKalyBotSplitter public splitter;
 
 	constructor() ERC20('Reentrant', 'RE') {}
 
 	function setTarget(address target_) external {
-		target = IKalyBotSplitter(target_);
+		splitter = IKalyBotSplitter(target_);
 	}
 
 	function mint(address to, uint256 amount) external {
@@ -19,7 +19,7 @@ contract ReentrantToken is ERC20 {
 	}
 
 	function transferFrom(address from, address to, uint256 value) public override returns (bool) {
-		if (address(target) != address(0)) target.split(address(this), 1);
+		if (address(splitter) != address(0)) splitter.split(address(this), 1);
 		return super.transferFrom(from, to, value);
 	}
 }
