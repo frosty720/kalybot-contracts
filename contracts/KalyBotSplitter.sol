@@ -25,6 +25,7 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 
 	address public frostyPayee;
 	address public bossPayee;
+	address public pendingBossPayee;
 	uint16 public frostyBps;
 	uint256 public frostyCapUsd;
 	uint256 public frostyPaidUsd;
@@ -38,6 +39,7 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	event TermsChanged(uint16 oldBps, uint16 newBps, uint256 oldCapUsd, uint256 newCapUsd);
 	event FrostyPayeeSet(address oldPayee, address newPayee);
 	event BossPayeeSet(address oldPayee, address newPayee);
+	event BossPayeeProposed(address indexed currentPayee, address indexed proposedPayee);
 	event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
 	error ZeroAddress();
@@ -48,6 +50,7 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	error NothingToSweep();
 	error CapBelowPaid();
 	error NotBossPayee();
+	error NotPendingBossPayee();
 	error CannotRescueRevenueToken();
 
 	constructor(address owner_, address frostyPayee_, address bossPayee_, uint16 frostyBps_, uint256 frostyCapUsd_)
@@ -110,12 +113,23 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 		frostyPayee = payee;
 	}
 
-	/// @notice Only the boss's current payout address can change it — the owner cannot redirect the boss's share.
-	function setBossPayee(address payee) external {
+	/// @notice Step 1 of changing the boss's payout address: only the current address can propose a
+	///         new one, so the owner can never redirect the boss's share. Proposing again replaces a
+	///         mistaken proposal.
+	function proposeBossPayee(address payee) external {
 		if (msg.sender != bossPayee) revert NotBossPayee();
 		if (payee == address(0)) revert ZeroAddress();
-		emit BossPayeeSet(bossPayee, payee);
-		bossPayee = payee;
+		pendingBossPayee = payee;
+		emit BossPayeeProposed(bossPayee, payee);
+	}
+
+	/// @notice Step 2: the proposed address accepts, proving the boss controls it. A mistyped address
+	///         can never take over the boss's share.
+	function acceptBossPayee() external {
+		if (msg.sender != pendingBossPayee) revert NotPendingBossPayee();
+		emit BossPayeeSet(bossPayee, msg.sender);
+		bossPayee = msg.sender;
+		pendingBossPayee = address(0);
 	}
 
 	/// @notice Return a non-revenue token sent here by mistake. Always goes to the boss, so the

@@ -193,20 +193,42 @@ describe('KalyBotSplitter: owner and boss controls', () => {
 		expect(await splitter.frostyPayee()).to.equal(stranger.address);
 	});
 
-	it('lets only the boss change the boss payout address — not the owner', async () => {
-		const { splitter, owner, boss, stranger } = await loadFixture(deployFixture);
-		await expect(splitter.connect(owner).setBossPayee(stranger.address))
+	it('changes the boss payout address in two steps: the boss proposes, the new address accepts', async () => {
+		const { splitter, usdt, owner, boss, payer, stranger } = await loadFixture(deployFixture);
+		await expect(splitter.connect(owner).proposeBossPayee(stranger.address))
 			.to.be.revertedWithCustomError(splitter, 'NotBossPayee');
-		await expect(splitter.connect(boss).setBossPayee(stranger.address))
+		await expect(splitter.connect(boss).proposeBossPayee(stranger.address))
+			.to.emit(splitter, 'BossPayeeProposed')
+			.withArgs(boss.address, stranger.address);
+		expect(await splitter.pendingBossPayee()).to.equal(stranger.address);
+		// until the new address accepts, the boss's share still goes to the current address
+		await splitter.connect(payer).split(await usdt.getAddress(), USDT(10n));
+		expect(await usdt.balanceOf(boss.address)).to.equal(USDT(4n));
+		await expect(splitter.connect(stranger).acceptBossPayee())
 			.to.emit(splitter, 'BossPayeeSet')
 			.withArgs(boss.address, stranger.address);
+		expect(await splitter.bossPayee()).to.equal(stranger.address);
+		expect(await splitter.pendingBossPayee()).to.equal(ethers.ZeroAddress);
+	});
+
+	it('lets the boss replace a mistaken proposal, and only the proposed address can accept', async () => {
+		const { splitter, owner, frosty, boss, stranger } = await loadFixture(deployFixture);
+		await expect(splitter.connect(stranger).acceptBossPayee())
+			.to.be.revertedWithCustomError(splitter, 'NotPendingBossPayee');
+		await splitter.connect(boss).proposeBossPayee(frosty.address); // wrong paste
+		await splitter.connect(boss).proposeBossPayee(stranger.address); // corrected
+		await expect(splitter.connect(frosty).acceptBossPayee())
+			.to.be.revertedWithCustomError(splitter, 'NotPendingBossPayee');
+		await expect(splitter.connect(owner).acceptBossPayee())
+			.to.be.revertedWithCustomError(splitter, 'NotPendingBossPayee');
+		await splitter.connect(stranger).acceptBossPayee();
 		expect(await splitter.bossPayee()).to.equal(stranger.address);
 	});
 
 	it('rejects zero payout addresses', async () => {
 		const { splitter, boss } = await loadFixture(deployFixture);
 		await expect(splitter.setFrostyPayee(ethers.ZeroAddress)).to.be.revertedWithCustomError(splitter, 'ZeroAddress');
-		await expect(splitter.connect(boss).setBossPayee(ethers.ZeroAddress)).to.be.revertedWithCustomError(splitter, 'ZeroAddress');
+		await expect(splitter.connect(boss).proposeBossPayee(ethers.ZeroAddress)).to.be.revertedWithCustomError(splitter, 'ZeroAddress');
 	});
 
 	it('rescues a stray non-revenue token to the boss only, never a revenue token', async () => {

@@ -6,13 +6,15 @@ import {Ownable2Step} from '@openzeppelin/contracts/access/Ownable2Step.sol';
 import {Pausable} from '@openzeppelin/contracts/utils/Pausable.sol';
 import {ReentrancyGuard} from '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
 import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+import {SafeCast} from '@openzeppelin/contracts/utils/math/SafeCast.sol';
 import {SafeERC20} from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import {IKalyBotSplitter} from './interfaces/IKalyBotSplitter.sol';
 
 /// @notice KalyBot plan payments. Adapted from FrostyFlow's FrostySubscriptionV3: exact on-chain
-///         prices, stacking renewals, and every payment forwarded to the splitter in the same
-///         transaction (this contract never keeps funds). Subscriptions are keyed by the
-///         control plane's instance id, so any wallet can pay for any instance.
+///         prices, and every payment forwarded to the splitter in the same transaction (this
+///         contract never keeps funds). Renewals on the same tier stack on the remaining time; a
+///         tier change converts the remaining time at the monthly price ratio. Subscriptions are
+///         keyed by the control plane's instance id, so any wallet can pay for any instance.
 /// @dev The on-chain expiry is informational; the control plane's paid_until is authoritative.
 contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 	using SafeERC20 for IERC20;
@@ -78,7 +80,10 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 		usedOrderRef[orderRef] = true;
 
 		IERC20(token).safeTransferFrom(msg.sender, address(this), price);
-		uint256 expiry = _extend(instanceId, tier, periodDuration(period));
+		Subscription storage sub = _subscriptions[instanceId];
+		uint256 left = _remaining(sub);
+		if (left > 0 && sub.tier != tier) left = _convert(left, sub.tier, tier, token);
+		uint256 expiry = _store(sub, tier, block.timestamp + left + periodDuration(period));
 		splitter.split(token, price);
 
 		emit Subscribed(instanceId, tier, period, expiry, msg.sender, token, price, orderRef);
@@ -112,12 +117,14 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 		emit PriceSet(tier, period, token, price);
 	}
 
-	/// @notice Free time for comps. Moves no money.
+	/// @notice Free time for comps. Moves no money. Stacks 1:1 on any time left and switches the
+	///         tier without converting it: a comp is the owner's deliberate choice.
 	function grant(bytes32 instanceId, uint8 tier, uint256 duration) external onlyOwner {
 		if (instanceId == bytes32(0)) revert ZeroInstance();
 		_checkTier(tier);
 		if (duration == 0) revert InvalidDuration();
-		uint256 expiry = _extend(instanceId, tier, duration);
+		Subscription storage sub = _subscriptions[instanceId];
+		uint256 expiry = _store(sub, tier, block.timestamp + _remaining(sub) + duration);
 		emit SubscriptionGranted(instanceId, tier, duration, expiry);
 	}
 
@@ -149,12 +156,25 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 		if (price == 0) revert TierNotConfigured();
 	}
 
-	/// @dev Stacks on the current expiry if still active, otherwise starts now. The tier switches immediately.
-	function _extend(bytes32 instanceId, uint8 tier, uint256 duration) internal returns (uint256) {
-		Subscription storage sub = _subscriptions[instanceId];
-		uint256 base = sub.expiry > block.timestamp ? sub.expiry : block.timestamp;
+	/// @dev Seconds left on the current plan; 0 once it has lapsed.
+	function _remaining(Subscription storage sub) internal view returns (uint256) {
+		return sub.expiry > block.timestamp ? sub.expiry - block.timestamp : 0;
+	}
+
+	/// @dev Converts leftover time on `fromTier` into time on `toTier` at the ratio of their monthly
+	///      prices in `token`: an upgrade buys proportionally fewer days, a downgrade keeps the value
+	///      already paid. Reverts rather than silently dropping time if either monthly price is unset.
+	function _convert(uint256 left, uint8 fromTier, uint8 toTier, address token) internal view returns (uint256) {
+		uint256 fromRate = prices[fromTier][PERIOD_MONTHLY][token];
+		uint256 toRate = prices[toTier][PERIOD_MONTHLY][token];
+		if (fromRate == 0 || toRate == 0) revert TierNotConfigured();
+		return (left * fromRate) / toRate;
+	}
+
+	/// @dev The tier switches immediately. SafeCast reverts instead of wrapping an absurd expiry.
+	function _store(Subscription storage sub, uint8 tier, uint256 expiry) internal returns (uint256) {
 		sub.tier = tier;
-		sub.expiry = uint64(base + duration);
-		return sub.expiry;
+		sub.expiry = SafeCast.toUint64(expiry);
+		return expiry;
 	}
 }

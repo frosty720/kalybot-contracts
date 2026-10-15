@@ -98,16 +98,58 @@ describe('KalyBotSubscription', () => {
 		expect((await sub.getSubscription(instance('acme')))[1]).to.equal(now + 30n * DAY);
 	});
 
-	it('a plan change mid-period switches tier and stacks a full period', async () => {
+	it('an upgrade mid-period converts the leftover time at the monthly price ratio', async () => {
 		const { sub, usdt, payer } = await loadFixture(deployFixture);
 		const token = await usdt.getAddress();
 		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, token, order('1'));
 		const [, firstExpiry] = await sub.getSubscription(instance('acme'));
 		await time.increase(10n * DAY);
-		await sub.connect(payer).subscribeFor(instance('acme'), ENTERPRISE, MONTHLY, token, order('2'));
+		const tx = await sub.connect(payer).subscribeFor(instance('acme'), ENTERPRISE, MONTHLY, token, order('2'));
+		const now = BigInt(await time.latest());
 		const [tier, expiry] = await sub.getSubscription(instance('acme'));
 		expect(tier).to.equal(ENTERPRISE);
-		expect(expiry).to.equal(firstExpiry + 30n * DAY);
+		// ~20 Pro days left are worth 20 × 49/199 ≈ 4.9 Enterprise days, plus the 30 days paid for
+		expect(expiry).to.equal(now + ((firstExpiry - now) * 49n) / 199n + 30n * DAY);
+		// the event carries the same expiry the control plane will store
+		const receipt = await tx.wait();
+		const log = receipt!.logs.map((l) => sub.interface.parseLog(l)).find((l) => l?.name === 'Subscribed')!;
+		expect(log.args.expiry).to.equal(expiry);
+	});
+
+	it('a downgrade mid-period keeps the value already paid', async () => {
+		const { sub, usdt, payer } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await sub.connect(payer).subscribeFor(instance('acme'), ENTERPRISE, MONTHLY, token, order('1'));
+		const [, firstExpiry] = await sub.getSubscription(instance('acme'));
+		await time.increase(10n * DAY);
+		await sub.connect(payer).subscribeFor(instance('acme'), STARTER, MONTHLY, token, order('2'));
+		const now = BigInt(await time.latest());
+		const [tier, expiry] = await sub.getSubscription(instance('acme'));
+		expect(tier).to.equal(STARTER);
+		expect(expiry).to.equal(now + ((firstExpiry - now) * 199n) / 19n + 30n * DAY);
+		// ~20 Enterprise days become more than 200 Starter days, not 20
+		expect(expiry - now - 30n * DAY).to.be.greaterThan(200n * DAY);
+	});
+
+	it('a plan change after expiry starts fresh with nothing to convert', async () => {
+		const { sub, usdt, payer } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, token, order('1'));
+		await time.increase(45n * DAY);
+		await sub.connect(payer).subscribeFor(instance('acme'), ENTERPRISE, MONTHLY, token, order('2'));
+		const now = BigInt(await time.latest());
+		expect((await sub.getSubscription(instance('acme')))[1]).to.equal(now + 30n * DAY);
+	});
+
+	it('refuses a plan change it cannot price instead of dropping the leftover time', async () => {
+		const { sub, kusd, payer } = await loadFixture(deployFixture);
+		const token = await kusd.getAddress();
+		// KUSD has a Pro monthly price but no Starter monthly price, so Pro days cannot be converted
+		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, token, order('1'));
+		await sub.setPrice(STARTER, ANNUAL, token, KUSD(180n));
+		await time.increase(5n * DAY);
+		await expect(sub.connect(payer).subscribeFor(instance('acme'), STARTER, ANNUAL, token, order('2')))
+			.to.be.revertedWithCustomError(sub, 'TierNotConfigured');
 	});
 
 	it('accepts KUSD at its own price', async () => {
@@ -215,5 +257,22 @@ describe('KalyBotSubscription', () => {
 		await expect(sub.rescueToken(token, ethers.ZeroAddress, 1n)).to.be.revertedWithCustomError(sub, 'ZeroAddress');
 		await expect(sub.connect(stranger).rescueToken(token, stranger.address, 1n))
 			.to.be.revertedWithCustomError(sub, 'OwnableUnauthorizedAccount');
+	});
+
+	it('grant stacks 1:1 on the time left and switches tier without converting', async () => {
+		const { sub, usdt, payer } = await loadFixture(deployFixture);
+		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, await usdt.getAddress(), order('1'));
+		const [, firstExpiry] = await sub.getSubscription(instance('acme'));
+		await time.increase(10n * DAY);
+		await sub.grant(instance('acme'), ENTERPRISE, 7n * DAY);
+		const [tier, expiry] = await sub.getSubscription(instance('acme'));
+		expect(tier).to.equal(ENTERPRISE);
+		expect(expiry).to.equal(firstExpiry + 7n * DAY);
+	});
+
+	it('grant rejects a duration that would overflow the stored expiry', async () => {
+		const { sub } = await loadFixture(deployFixture);
+		await expect(sub.grant(instance('x'), PRO, 2n ** 64n))
+			.to.be.revertedWithCustomError(sub, 'SafeCastOverflowedUintDowncast');
 	});
 });
