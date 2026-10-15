@@ -5,6 +5,7 @@ import {Ownable} from '@openzeppelin/contracts/access/Ownable.sol';
 import {Ownable2Step} from '@openzeppelin/contracts/access/Ownable2Step.sol';
 import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import {SafeERC20} from '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import {IERC20Metadata} from '@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol';
 import {ReentrancyGuard} from '@openzeppelin/contracts/utils/ReentrancyGuard.sol';
 import {IKalyBotSplitter} from './interfaces/IKalyBotSplitter.sol';
 
@@ -42,6 +43,7 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	error ZeroAddress();
 	error BpsTooHigh();
 	error DecimalsTooHigh();
+	error DecimalsMismatch();
 	error TokenNotAccepted();
 	error NothingToSweep();
 	error CapBelowPaid();
@@ -82,6 +84,7 @@ contract KalyBotSplitter is IKalyBotSplitter, Ownable2Step, ReentrancyGuard {
 	function addToken(address token, uint8 decimals) external onlyOwner {
 		if (token == address(0)) revert ZeroAddress();
 		if (decimals > 18) revert DecimalsTooHigh();
+		if (IERC20Metadata(token).decimals() != decimals) revert DecimalsMismatch();
 		usdScale[token] = 10 ** (18 - decimals);
 		emit TokenAdded(token, decimals);
 	}

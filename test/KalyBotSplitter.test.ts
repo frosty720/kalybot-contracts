@@ -137,6 +137,16 @@ describe('KalyBotSplitter: split and sweep', () => {
 		await expect(splitter.connect(payer).split(token, USDT(1n))).to.be.revertedWithCustomError(splitter, 'TokenNotAccepted');
 		await expect(splitter.sweep(token)).to.be.revertedWithCustomError(splitter, 'TokenNotAccepted');
 	});
+
+	it('addToken rejects decimals that differ from the token\'s own (no silent rescale of a live token)', async () => {
+		const { splitter, usdt, payer } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await expect(splitter.addToken(token, 18)).to.be.revertedWithCustomError(splitter, 'DecimalsMismatch');
+		await expect(splitter.addToken(token, 0)).to.be.revertedWithCustomError(splitter, 'DecimalsMismatch');
+		expect(await splitter.usdScale(token)).to.equal(10n ** 12n);
+		await splitter.connect(payer).split(token, USDT(100n));
+		expect(await splitter.frostyPaidUsd()).to.equal(60n * USD);
+	});
 });
 
 describe('KalyBotSplitter: owner and boss controls', () => {
