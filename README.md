@@ -16,6 +16,7 @@ npx hardhat test
 
 ## Deploy (KalyChain 3890)
 
-1. Copy `.env.example` to `.env` and fill in `DEPLOYER_PRIVATE_KEY`, `OWNER_ADDRESS`, `FROSTY_PAYEE`, `BOSS_PAYEE`.
-2. `npm run deploy:kalychain`. The script refuses a zero or deployer-owned `OWNER_ADDRESS` and zero payees, verifies the USDT/KUSD addresses on-chain, then deploys with explicit gas limits. It writes `deployments/kalychain.json` as soon as each contract exists (`status: "deploying"`), finishing with `status: "configured"`; if it stops part-way, the file shows what was deployed (still owned by the deployer key). It refuses to run if that file already exists.
-3. From `OWNER_ADDRESS`, call `acceptOwnership()` on both contracts.
+1. Copy `.env.example` to `.env` and fill in `DEPLOYER_PRIVATE_KEY` (the wallet that will own both contracts), `FROSTY_PAYEE` and `BOSS_PAYEE`.
+2. Rehearse on a local fork of 3890 (nothing is sent to the real chain): set `DEPLOYER_ADDRESS` to that wallet's address, then `npm run rehearse:kalychain`. It runs the same deploy code while impersonating the wallet, checks owner, payees, split, cap and all 16 prices, makes one real-token payment per stablecoin, and prints the KMT cost. It must end with `REHEARSAL PASSED`.
+3. `npm run deploy:kalychain`. The script refuses zero payees, verifies the USDT/KUSD addresses on-chain, then deploys with explicit gas limits. It writes `deployments/kalychain.json` as soon as each contract exists (`status: "deploying"`), finishing with `status: "configured"`; if it stops part-way, the file shows what was deployed. It refuses to run if that file already exists. The deploying wallet owns both contracts; there is no ownership handover.
+4. Copy the three lines it prints (`KALYBOT_SPLITTER_ADDRESS`, `KALYBOT_SUBSCRIPTION_ADDRESS`, `KALYBOT_WATCH_FROM_BLOCK`) into the control plane's `.env`.

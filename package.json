@@ -6,7 +6,8 @@
 	"scripts": {
 		"compile": "hardhat compile",
 		"test": "hardhat test",
-		"deploy:kalychain": "hardhat run scripts/deploy.ts --network kalychain"
+		"deploy:kalychain": "hardhat run scripts/deploy.ts --network kalychain",
+		"rehearse:kalychain": "KALYCHAIN_FORK=1 hardhat run scripts/rehearse.ts"
 	},
 	"devDependencies": {
 		"@nomicfoundation/hardhat-toolbox": "^5.0.0",
