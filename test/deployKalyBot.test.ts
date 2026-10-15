@@ -38,13 +38,13 @@ async function mockTokens() {
 }
 
 describe('deployKalyBot', () => {
-	it('deploys, wires the token allowlist, sets every price and hands ownership to the owner', async () => {
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+	it('deploys, wires the token allowlist, sets every price and leaves the deploying wallet as owner', async () => {
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 		const deployed: DeployedContract[] = [];
 
 		const { splitter, subscription } = await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 			onDeployed: (contract) => deployed.push(contract),
 		});
 
@@ -59,18 +59,21 @@ describe('deployKalyBot', () => {
 		expect(await sub.prices(2, 0, tokens[0].address)).to.equal(49_000_000n);
 		expect(await sub.prices(4, 1, tokens[1].address)).to.equal(1908n * 10n ** 18n);
 		expect(Object.keys(PLAN_PRICES_USD)).to.have.length(4);
-		// ownership waits for the owner to accept (Ownable2Step)
-		expect(await split.pendingOwner()).to.equal(owner.address);
-		expect(await sub.pendingOwner()).to.equal(owner.address);
+		// the deploying wallet is the owner from the start: no handover pending
+		expect(await split.owner()).to.equal(deployer.address);
+		expect(await sub.owner()).to.equal(deployer.address);
+		expect(await split.pendingOwner()).to.equal(ethers.ZeroAddress);
+		expect(await sub.pendingOwner()).to.equal(ethers.ZeroAddress);
+		expect(await sub.splitter()).to.equal(splitter);
 	});
 
 	it('reports each contract with its deploy tx and block as soon as it is deployed', async () => {
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 		const deployed: DeployedContract[] = [];
 
 		const result = await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 			onDeployed: (contract) => deployed.push(contract),
 		});
 
@@ -86,12 +89,12 @@ describe('deployKalyBot', () => {
 
 	it('sends every deploy transaction with an explicit gas limit that covers real usage', async function () {
 		if (COVERAGE) this.skip();
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 		const startBlock = await ethers.provider.getBlockNumber();
 
 		await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 		});
 
 		const limits = Object.values(DEPLOY_GAS_LIMITS);
@@ -114,18 +117,18 @@ describe('deployKalyBot', () => {
 		for (const [limit, maxUsed] of maxUsedByLimit) {
 			expect(limit <= 2n * maxUsed, `limit ${limit} within 2x heaviest use ${maxUsed}`).to.equal(true);
 		}
-		expect(deployerTxs).to.equal(2 + 2 + 16 + 2);
+		expect(deployerTxs).to.equal(2 + 2 + 16);
 	});
 
 	it('reports each deploy tx as sent, before waiting for it to be mined', async () => {
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 		const events: string[] = [];
 		const sent: Record<string, { address: string; txHash: string }> = {};
 		const deployed: Record<string, { address: string; txHash: string }> = {};
 
 		await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 			onSent: (s) => {
 				events.push(`sent:${s.name}`);
 				sent[s.name] = { address: s.address, txHash: s.txHash };
@@ -142,23 +145,21 @@ describe('deployKalyBot', () => {
 	});
 
 	it('uses the supplied gas limits for every deploy transaction', async () => {
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 
 		await expect(deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
 			gasLimits: { ...DEPLOY_GAS_LIMITS, splitter: 100_000n },
 		})).to.be.rejectedWith(/gas/i);
 	});
 
-	it('refuses a zero owner, the deployer as owner, or a zero payee before sending any transaction', async () => {
-		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+	it('refuses a zero payee before sending any transaction', async () => {
+		const [deployer, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
-		const good = { deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits };
+		const good = { deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits };
 		const nonce = await deployer.getNonce();
 
-		await expect(deployKalyBot({ ...good, owner: ethers.ZeroAddress })).to.be.rejectedWith(/owner must be a non-zero address/);
-		await expect(deployKalyBot({ ...good, owner: deployer.address })).to.be.rejectedWith(/owner must be the cold wallet/);
 		await expect(deployKalyBot({ ...good, frostyPayee: ethers.ZeroAddress })).to.be.rejectedWith(/frostyPayee must be a non-zero address/);
 		await expect(deployKalyBot({ ...good, bossPayee: ethers.ZeroAddress })).to.be.rejectedWith(/bossPayee must be a non-zero address/);
 
@@ -167,10 +168,10 @@ describe('deployKalyBot', () => {
 
 	it('checkout gas fallbacks cover approve, a first payment and a plan change when sent as the gas limit', async function () {
 		if (COVERAGE) this.skip();
-		const [deployer, owner, frosty, boss, payer] = await ethers.getSigners();
+		const [deployer, frosty, boss, payer] = await ethers.getSigners();
 		const { usdt, tokens } = await mockTokens();
 		const { subscription } = await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			deployer, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
 		});
 		const sub = await ethers.getContractAt('KalyBotSubscription', subscription);
 		const usdtAddress = await usdt.getAddress();

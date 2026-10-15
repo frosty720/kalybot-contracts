@@ -14,18 +14,14 @@ export const PLAN_PRICES_USD: Record<number, [number, number]> = {
 
 export interface DeployInputs {
 	deployer: string;
-	owner: string;
 	frostyPayee: string;
 	bossPayee: string;
 }
 
-/** Rejects inputs that would leave the contracts owned by the hot deployer key or pay a dead address. */
+/** Rejects a zero or malformed address, so no payment can be split to a dead address. */
 export function validateDeployInputs(inputs: DeployInputs): void {
 	for (const [name, value] of Object.entries(inputs)) {
 		if (!ethers.isAddress(value) || value === ethers.ZeroAddress) throw new Error(`${name} must be a non-zero address`);
-	}
-	if (inputs.owner.toLowerCase() === inputs.deployer.toLowerCase()) {
-		throw new Error('owner must be the cold wallet, not the deployer key');
 	}
 }
 
@@ -55,7 +51,6 @@ export const DEPLOY_GAS_LIMITS = {
 	subscription: 1_625_000n,
 	addToken: 78_000n,
 	setPrice: 150_000n,
-	transferOwnership: 72_000n,
 };
 
 /**
@@ -70,7 +65,6 @@ export const CHECKOUT_GAS_LIMITS = { approve: 71_000n, subscribeFor: 400_000n };
 
 export interface DeployParams {
 	deployer: Signer;
-	owner: string;
 	frostyPayee: string;
 	bossPayee: string;
 	tokens: { address: string; decimals: number }[];
@@ -95,14 +89,14 @@ async function report(
 }
 
 /**
- * Deploys the splitter and subscription with the deployer as temporary owner, configures tokens
- * and prices, then starts a two-step ownership transfer to `owner` (who must call acceptOwnership).
+ * Deploys the splitter and subscription, configures tokens and prices. The deploying wallet is the
+ * owner of both contracts from the start (Frosty, 2026-10-15: deploy from the owner wallet).
  */
 export async function deployKalyBot(params: DeployParams): Promise<{ splitter: string; subscription: string }> {
-	const { deployer, owner, frostyPayee, bossPayee, tokens } = params;
+	const { deployer, frostyPayee, bossPayee, tokens } = params;
 	const limits = params.gasLimits ?? DEPLOY_GAS_LIMITS;
 	const deployerAddress = await deployer.getAddress();
-	validateDeployInputs({ deployer: deployerAddress, owner, frostyPayee, bossPayee });
+	validateDeployInputs({ deployer: deployerAddress, frostyPayee, bossPayee });
 
 	const splitter = await (await ethers.getContractFactory('KalyBotSplitter', deployer))
 		.deploy(deployerAddress, frostyPayee, bossPayee, FROSTY_BPS, FROSTY_CAP_USD, { gasLimit: limits.splitter });
@@ -123,9 +117,6 @@ export async function deployKalyBot(params: DeployParams): Promise<{ splitter: s
 			await (await subscription.setPrice(Number(tier), 1, token.address, BigInt(annual) * unit, { gasLimit: limits.setPrice })).wait();
 		}
 	}
-
-	await (await splitter.transferOwnership(owner, { gasLimit: limits.transferOwnership })).wait();
-	await (await subscription.transferOwnership(owner, { gasLimit: limits.transferOwnership })).wait();
 
 	return { splitter: await splitter.getAddress(), subscription: await subscription.getAddress() };
 }
