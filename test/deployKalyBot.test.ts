@@ -87,7 +87,9 @@ describe('deployKalyBot', () => {
 		});
 
 		const limits = Object.values(DEPLOY_GAS_LIMITS);
+		expect(new Set(limits).size, 'every kind has a distinct limit').to.equal(limits.length);
 		const latest = await ethers.provider.getBlockNumber();
+		const maxUsedByLimit = new Map<bigint, bigint>();
 		let deployerTxs = 0;
 		for (let n = startBlock + 1; n <= latest; n++) {
 			const block = (await ethers.provider.getBlock(n, true))!;
@@ -97,8 +99,12 @@ describe('deployKalyBot', () => {
 				const receipt = (await ethers.provider.getTransactionReceipt(tx.hash))!;
 				expect(limits, `gas limit of tx ${tx.hash}`).to.include(tx.gasLimit);
 				expect(receipt.gasUsed <= tx.gasLimit, `usage ${receipt.gasUsed} within limit ${tx.gasLimit}`).to.equal(true);
-				expect(tx.gasLimit <= receipt.gasUsed * 2n, `limit ${tx.gasLimit} within 2x usage ${receipt.gasUsed}`).to.equal(true);
+				const seen = maxUsedByLimit.get(tx.gasLimit) ?? 0n;
+				if (receipt.gasUsed > seen) maxUsedByLimit.set(tx.gasLimit, receipt.gasUsed);
 			}
+		}
+		for (const [limit, maxUsed] of maxUsedByLimit) {
+			expect(limit <= 2n * maxUsed, `limit ${limit} within 2x heaviest use ${maxUsed}`).to.equal(true);
 		}
 		expect(deployerTxs).to.equal(2 + 2 + 16 + 2);
 	});

@@ -39,16 +39,16 @@ export interface DeployedContract {
 /**
  * Explicit gas limits for every deploy transaction. Hardhat-ethers estimates gas against the
  * `pending` block, which KalyChain's Besu has rejected before, so nothing is left to estimation.
- * Each limit is the gas measured on the Hardhat network with ~1.5× headroom, rounded up to 1,000.
- * setPrice is the exception: a token's first price write costs ~99k and later ones ~51.6k, so the
- * limit sits just above the cold write, which is also the most 2× the cheapest write allows.
- * test/deployKalyBot.test.ts fails if usage exceeds a limit or a limit exceeds 2× usage.
+ * Each limit is ~1.5× the heaviest measured use of that kind on the Hardhat network, rounded up to
+ * 1,000. The first setPrice per token is the heaviest because it approves the splitter. The deployer
+ * pays, so the 2× bound is per kind, not per transaction. test/deployKalyBot.test.ts fails if usage
+ * exceeds a limit or a limit exceeds 2× the heaviest use of its kind.
  */
 export const DEPLOY_GAS_LIMITS = {
 	splitter: 1_689_000n,
 	subscription: 1_625_000n,
 	addToken: 78_000n,
-	setPrice: 103_000n,
+	setPrice: 150_000n,
 	transferOwnership: 72_000n,
 };
 
