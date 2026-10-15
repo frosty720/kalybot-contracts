@@ -1,0 +1,20 @@
+{
+	"name": "kalybot-contracts",
+	"version": "0.1.0",
+	"private": true,
+	"license": "MIT",
+	"scripts": {
+		"compile": "hardhat compile",
+		"test": "hardhat test",
+		"deploy:kalychain": "hardhat run scripts/deploy.ts --network kalychain"
+	},
+	"devDependencies": {
+		"@nomicfoundation/hardhat-toolbox": "^5.0.0",
+		"@openzeppelin/contracts": "^5.6.1",
+		"@types/node": "^20.19.43",
+		"dotenv": "^16.6.1",
+		"hardhat": "^2.29.1",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.9.3"
+	}
+}

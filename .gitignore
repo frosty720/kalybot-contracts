@@ -1,0 +1,12 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+.env
+
+# Agent tooling (never committed)
+.claude/
+.superpowers/
+docs/superpowers/
