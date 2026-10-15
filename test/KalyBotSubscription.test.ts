@@ -110,7 +110,7 @@ describe('KalyBotSubscription', () => {
 		expect(tier).to.equal(ENTERPRISE);
 		// ~20 Pro days left are worth 20 × 49/199 ≈ 4.9 Enterprise days, plus the 30 days paid for
 		expect(expiry).to.equal(now + ((firstExpiry - now) * 49n) / 199n + 30n * DAY);
-		// the event carries the same expiry the control plane will store
+		// the event's expiry matches the expiry stored on-chain
 		const receipt = await tx.wait();
 		const log = receipt!.logs.map((l) => sub.interface.parseLog(l)).find((l) => l?.name === 'Subscribed')!;
 		expect(log.args.expiry).to.equal(expiry);

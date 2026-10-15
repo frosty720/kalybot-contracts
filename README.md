@@ -2,7 +2,7 @@
 
 KalyBot plan payments on KalyChain (chainId 3890).
 
-- **KalyBotSubscription**: customers pay the exact on-chain price for a plan (USDT or KUSD), keyed by instance id. Renewals stack on the remaining time; every payment is forwarded to the splitter in the same transaction.
+- **KalyBotSubscription**: customers pay the exact on-chain price for a plan (USDT or KUSD), keyed by instance id. Renewals stack on the remaining time; a plan change while active converts the remaining time at the ratio of the two tiers' monthly prices, then adds the new period; every payment is forwarded to the splitter in the same transaction.
 - **KalyBotSplitter**: pays Frosty 60% of every payment until his total reaches $5,000, then 100% to the boss. Terms are adjustable by the owner and logged on-chain; only the boss can change the boss's payout address; there is no withdraw function.
 
 Adapted from FrostyFlow's `FrostySubscriptionV3` and `FrostyRevenueSplitter`. Not audited.

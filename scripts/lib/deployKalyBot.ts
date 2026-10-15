@@ -36,6 +36,12 @@ export interface DeployedContract {
 	blockNumber: number;
 }
 
+export interface SentContract {
+	name: DeployedContract['name'];
+	address: string;
+	txHash: string;
+}
+
 /**
  * Explicit gas limits for every deploy transaction. Hardhat-ethers estimates gas against the
  * `pending` block, which KalyChain's Besu has rejected before, so nothing is left to estimation.
@@ -54,11 +60,13 @@ export const DEPLOY_GAS_LIMITS = {
 
 /**
  * Fallback gas limits for the checkout page (Plan 3). The page estimates live and adds 50%, and
- * uses these only when estimation fails. A gas limit is also a spending floor (the wallet needs
- * limit × max fee in KLC to sign), so they stay close to measured usage. Measured on the mock
- * tokens; compare against the first real payment after mainnet deploy.
+ * uses these only when estimation fails. Each is ~1.5× the estimateGas of the heaviest case of
+ * its kind (approve; first payment on a fresh deployment; plan change), rounded up to 1,000. A gas
+ * limit is also a spending floor (the wallet needs limit × max fee in KLC to sign), so the 2×
+ * bound in test/deployKalyBot.test.ts protects customers' balances. Measured on the mock tokens;
+ * compare against the first real payment after mainnet deploy.
  */
-export const CHECKOUT_GAS_LIMITS = { approve: 71_000n, subscribeFor: 328_000n };
+export const CHECKOUT_GAS_LIMITS = { approve: 71_000n, subscribeFor: 400_000n };
 
 export interface DeployParams {
 	deployer: Signer;
@@ -66,7 +74,15 @@ export interface DeployParams {
 	frostyPayee: string;
 	bossPayee: string;
 	tokens: { address: string; decimals: number }[];
+	/** Limits for every deploy tx. Tests under solidity-coverage pass scaled limits; production uses the default. */
+	gasLimits?: typeof DEPLOY_GAS_LIMITS;
+	/** Called right after a deploy tx is sent, before it is mined. */
+	onSent?: (sent: SentContract) => void;
 	onDeployed?: (contract: DeployedContract) => void;
+}
+
+async function announceSent(name: DeployedContract['name'], contract: BaseContract, onSent: DeployParams['onSent']): Promise<void> {
+	onSent?.({ name, address: await contract.getAddress(), txHash: contract.deploymentTransaction()!.hash });
 }
 
 async function report(
@@ -84,29 +100,32 @@ async function report(
  */
 export async function deployKalyBot(params: DeployParams): Promise<{ splitter: string; subscription: string }> {
 	const { deployer, owner, frostyPayee, bossPayee, tokens } = params;
+	const limits = params.gasLimits ?? DEPLOY_GAS_LIMITS;
 	const deployerAddress = await deployer.getAddress();
 	validateDeployInputs({ deployer: deployerAddress, owner, frostyPayee, bossPayee });
 
 	const splitter = await (await ethers.getContractFactory('KalyBotSplitter', deployer))
-		.deploy(deployerAddress, frostyPayee, bossPayee, FROSTY_BPS, FROSTY_CAP_USD, { gasLimit: DEPLOY_GAS_LIMITS.splitter });
+		.deploy(deployerAddress, frostyPayee, bossPayee, FROSTY_BPS, FROSTY_CAP_USD, { gasLimit: limits.splitter });
+	await announceSent('splitter', splitter, params.onSent);
 	await splitter.waitForDeployment();
 	await report('splitter', splitter, params.onDeployed);
 	const subscription = await (await ethers.getContractFactory('KalyBotSubscription', deployer))
-		.deploy(await splitter.getAddress(), deployerAddress, { gasLimit: DEPLOY_GAS_LIMITS.subscription });
+		.deploy(await splitter.getAddress(), deployerAddress, { gasLimit: limits.subscription });
+	await announceSent('subscription', subscription, params.onSent);
 	await subscription.waitForDeployment();
 	await report('subscription', subscription, params.onDeployed);
 
 	for (const token of tokens) {
-		await (await splitter.addToken(token.address, token.decimals, { gasLimit: DEPLOY_GAS_LIMITS.addToken })).wait();
+		await (await splitter.addToken(token.address, token.decimals, { gasLimit: limits.addToken })).wait();
 		const unit = 10n ** BigInt(token.decimals);
 		for (const [tier, [monthly, annual]] of Object.entries(PLAN_PRICES_USD)) {
-			await (await subscription.setPrice(Number(tier), 0, token.address, BigInt(monthly) * unit, { gasLimit: DEPLOY_GAS_LIMITS.setPrice })).wait();
-			await (await subscription.setPrice(Number(tier), 1, token.address, BigInt(annual) * unit, { gasLimit: DEPLOY_GAS_LIMITS.setPrice })).wait();
+			await (await subscription.setPrice(Number(tier), 0, token.address, BigInt(monthly) * unit, { gasLimit: limits.setPrice })).wait();
+			await (await subscription.setPrice(Number(tier), 1, token.address, BigInt(annual) * unit, { gasLimit: limits.setPrice })).wait();
 		}
 	}
 
-	await (await splitter.transferOwnership(owner, { gasLimit: DEPLOY_GAS_LIMITS.transferOwnership })).wait();
-	await (await subscription.transferOwnership(owner, { gasLimit: DEPLOY_GAS_LIMITS.transferOwnership })).wait();
+	await (await splitter.transferOwnership(owner, { gasLimit: limits.transferOwnership })).wait();
+	await (await subscription.transferOwnership(owner, { gasLimit: limits.transferOwnership })).wait();
 
 	return { splitter: await splitter.getAddress(), subscription: await subscription.getAddress() };
 }

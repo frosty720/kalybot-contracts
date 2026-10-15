@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import hre, { ethers } from 'hardhat';
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { time } from '@nomicfoundation/hardhat-network-helpers';
@@ -11,6 +11,13 @@ import {
 } from '../scripts/lib/deployKalyBot';
 
 use(chaiAsPromised);
+
+/** solidity-coverage sets this flag; instrumented bytecode needs far more gas than the real limits. */
+const COVERAGE = (hre as unknown as { __SOLIDITY_COVERAGE_RUNNING?: boolean }).__SOLIDITY_COVERAGE_RUNNING === true;
+const COVERAGE_GAS_LIMITS = Object.fromEntries(
+	Object.entries(DEPLOY_GAS_LIMITS).map(([kind, limit]) => [kind, limit * 3n]),
+) as typeof DEPLOY_GAS_LIMITS;
+const gasLimits = COVERAGE ? COVERAGE_GAS_LIMITS : undefined;
 
 const PRO = 2;
 const ENTERPRISE = 4;
@@ -37,7 +44,7 @@ describe('deployKalyBot', () => {
 		const deployed: DeployedContract[] = [];
 
 		const { splitter, subscription } = await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 			onDeployed: (contract) => deployed.push(contract),
 		});
 
@@ -63,7 +70,7 @@ describe('deployKalyBot', () => {
 		const deployed: DeployedContract[] = [];
 
 		const result = await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 			onDeployed: (contract) => deployed.push(contract),
 		});
 
@@ -77,13 +84,14 @@ describe('deployKalyBot', () => {
 		expect(result.subscription).to.equal(deployed[1].address);
 	});
 
-	it('sends every deploy transaction with an explicit gas limit that covers real usage', async () => {
+	it('sends every deploy transaction with an explicit gas limit that covers real usage', async function () {
+		if (COVERAGE) this.skip();
 		const [deployer, owner, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
 		const startBlock = await ethers.provider.getBlockNumber();
 
 		await deployKalyBot({
-			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
 		});
 
 		const limits = Object.values(DEPLOY_GAS_LIMITS);
@@ -109,10 +117,44 @@ describe('deployKalyBot', () => {
 		expect(deployerTxs).to.equal(2 + 2 + 16 + 2);
 	});
 
+	it('reports each deploy tx as sent, before waiting for it to be mined', async () => {
+		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const { tokens } = await mockTokens();
+		const events: string[] = [];
+		const sent: Record<string, { address: string; txHash: string }> = {};
+		const deployed: Record<string, { address: string; txHash: string }> = {};
+
+		await deployKalyBot({
+			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits,
+			onSent: (s) => {
+				events.push(`sent:${s.name}`);
+				sent[s.name] = { address: s.address, txHash: s.txHash };
+			},
+			onDeployed: (c) => {
+				events.push(`deployed:${c.name}`);
+				deployed[c.name] = { address: c.address, txHash: c.txHash };
+			},
+		});
+
+		expect(events).to.deep.equal(['sent:splitter', 'deployed:splitter', 'sent:subscription', 'deployed:subscription']);
+		expect(sent.splitter).to.deep.equal(deployed.splitter);
+		expect(sent.subscription).to.deep.equal(deployed.subscription);
+	});
+
+	it('uses the supplied gas limits for every deploy transaction', async () => {
+		const [deployer, owner, frosty, boss] = await ethers.getSigners();
+		const { tokens } = await mockTokens();
+
+		await expect(deployKalyBot({
+			deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens,
+			gasLimits: { ...DEPLOY_GAS_LIMITS, splitter: 100_000n },
+		})).to.be.rejectedWith(/gas/i);
+	});
+
 	it('refuses a zero owner, the deployer as owner, or a zero payee before sending any transaction', async () => {
 		const [deployer, owner, frosty, boss] = await ethers.getSigners();
 		const { tokens } = await mockTokens();
-		const good = { deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens };
+		const good = { deployer, owner: owner.address, frostyPayee: frosty.address, bossPayee: boss.address, tokens, gasLimits };
 		const nonce = await deployer.getNonce();
 
 		await expect(deployKalyBot({ ...good, owner: ethers.ZeroAddress })).to.be.rejectedWith(/owner must be a non-zero address/);
@@ -123,7 +165,8 @@ describe('deployKalyBot', () => {
 		expect(await deployer.getNonce()).to.equal(nonce);
 	});
 
-	it('checkout gas fallbacks cover approve, a first payment and a plan change', async () => {
+	it('checkout gas fallbacks cover approve, a first payment and a plan change when sent as the gas limit', async function () {
+		if (COVERAGE) this.skip();
 		const [deployer, owner, frosty, boss, payer] = await ethers.getSigners();
 		const { usdt, tokens } = await mockTokens();
 		const { subscription } = await deployKalyBot({
@@ -132,18 +175,30 @@ describe('deployKalyBot', () => {
 		const sub = await ethers.getContractAt('KalyBotSubscription', subscription);
 		const usdtAddress = await usdt.getAddress();
 		await usdt.mint(payer.address, 10_000n * 10n ** 6n);
+		const { approve, subscribeFor } = CHECKOUT_GAS_LIMITS;
 
-		const approveGas = (await (await usdt.connect(payer).approve(subscription, ethers.MaxUint256)).wait())!.gasUsed;
-		const firstGas = (await (await sub.connect(payer)
-			.subscribeFor(ethers.id('instance:a'), PRO, MONTHLY, usdtAddress, ethers.id('order:1'))).wait())!.gasUsed;
+		const approveEstimate = await usdt.connect(payer).approve.estimateGas(subscription, ethers.MaxUint256);
+		const approveReceipt = await (await usdt.connect(payer).approve(subscription, ethers.MaxUint256, { gasLimit: approve })).wait();
+		expect(approveReceipt!.status).to.equal(1);
+
+		const firstEstimate = await sub.connect(payer)
+			.subscribeFor.estimateGas(ethers.id('instance:a'), PRO, MONTHLY, usdtAddress, ethers.id('order:1'));
+		const firstReceipt = await (await sub.connect(payer)
+			.subscribeFor(ethers.id('instance:a'), PRO, MONTHLY, usdtAddress, ethers.id('order:1'), { gasLimit: subscribeFor })).wait();
+		expect(firstReceipt!.status).to.equal(1);
+
 		await time.increase(10 * 24 * 60 * 60);
-		const changeGas = (await (await sub.connect(payer)
-			.subscribeFor(ethers.id('instance:a'), ENTERPRISE, MONTHLY, usdtAddress, ethers.id('order:2'))).wait())!.gasUsed;
+		const changeEstimate = await sub.connect(payer)
+			.subscribeFor.estimateGas(ethers.id('instance:a'), ENTERPRISE, MONTHLY, usdtAddress, ethers.id('order:2'));
+		const changeReceipt = await (await sub.connect(payer)
+			.subscribeFor(ethers.id('instance:a'), ENTERPRISE, MONTHLY, usdtAddress, ethers.id('order:2'), { gasLimit: subscribeFor })).wait();
+		expect(changeReceipt!.status).to.equal(1);
 
-		const maxPay = firstGas > changeGas ? firstGas : changeGas;
-		expect(approveGas <= CHECKOUT_GAS_LIMITS.approve, `approve usage ${approveGas}`).to.equal(true);
-		expect(CHECKOUT_GAS_LIMITS.approve <= 2n * approveGas, `approve limit vs usage ${approveGas}`).to.equal(true);
-		expect(maxPay <= CHECKOUT_GAS_LIMITS.subscribeFor, `subscribeFor usage ${maxPay}`).to.equal(true);
-		expect(CHECKOUT_GAS_LIMITS.subscribeFor <= 2n * maxPay, `subscribeFor limit vs usage ${maxPay}`).to.equal(true);
+		const maxPay = firstEstimate > changeEstimate ? firstEstimate : changeEstimate;
+		expect(approveEstimate <= approve, `approve estimate ${approveEstimate}`).to.equal(true);
+		expect(approve <= 2n * approveEstimate, `approve limit ${approve} vs estimate ${approveEstimate}`).to.equal(true);
+		expect(maxPay <= subscribeFor, `subscribeFor estimate ${maxPay}`).to.equal(true);
+		expect(subscribeFor <= 2n * maxPay, `subscribeFor limit ${subscribeFor} vs estimate ${maxPay}`).to.equal(true);
+		console.log(`      estimates: approve ${approveEstimate}, first ${firstEstimate}, change ${changeEstimate}`);
 	});
 });

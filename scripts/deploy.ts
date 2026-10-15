@@ -18,6 +18,9 @@ const TOKENS = [
 	{ address: '0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9', symbol: 'KUSD', decimals: 18 },
 ];
 
+/** A deploy tx that was sent; blockNumber stays null until its receipt arrives. */
+type SentRecord = Omit<DeployedContract, 'blockNumber'> & { blockNumber: number | null };
+
 interface DeploymentRecord {
 	chainId: number;
 	status: 'deploying' | 'configured';
@@ -27,8 +30,8 @@ interface DeploymentRecord {
 	bossPayee: string;
 	frostyBps: number;
 	frostyCapUsd: string;
-	splitter?: DeployedContract;
-	subscription?: DeployedContract;
+	splitter?: SentRecord;
+	subscription?: SentRecord;
 	tokens: typeof TOKENS;
 	checkoutGasLimits: { approve: string; subscribeFor: string };
 }
@@ -78,6 +81,7 @@ async function main() {
 		},
 	};
 	mkdirSync(OUT_DIR, { recursive: true });
+	save(record);
 	try {
 		await deployKalyBot({
 			deployer,
@@ -85,6 +89,11 @@ async function main() {
 			frostyPayee,
 			bossPayee,
 			tokens: TOKENS,
+			onSent: (sent) => {
+				record[sent.name] = { ...sent, blockNumber: null };
+				save(record);
+				console.log(`${sent.name} tx ${sent.txHash} sent, deploying at ${sent.address}`);
+			},
 			onDeployed: (contract) => {
 				record[contract.name] = contract;
 				save(record);
