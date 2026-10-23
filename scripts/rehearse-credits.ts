@@ -54,8 +54,7 @@ async function rehearseBuy(creditsAddress: string, splitterAddress: string, toke
 	const amount = PACK_USD * 10n ** BigInt(token.decimals);
 	const holder = await findHolder(token, amount, forkBlock, [frostyPayee, bossPayee, splitterAddress, creditsAddress]);
 	if (!holder) {
-		console.log(`SKIP ${token.symbol} buy: no wallet holding ${ethers.formatUnits(amount, token.decimals)} ${token.symbol} received it in the last ${HOLDER_SCAN_BLOCKS} blocks`);
-		return;
+		throw new Error(`FAIL: no wallet holding ${ethers.formatUnits(amount, token.decimals)} ${token.symbol} received it in the last ${HOLDER_SCAN_BLOCKS} blocks, so the ${token.symbol} buy was not rehearsed`);
 	}
 	await impersonateAccount(holder);
 	await setBalance(holder, 10n ** 18n); // fork-only gas money for the borrowed wallet
