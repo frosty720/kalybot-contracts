@@ -25,7 +25,7 @@ export const KALYCHAIN_TOKENS: TokenSpec[] = [
 ];
 
 /** A deploy tx that was sent; blockNumber stays null until its receipt arrives. */
-type SentRecord = Omit<DeployedContract, 'blockNumber'> & { blockNumber: number | null };
+export type SentRecord = Omit<DeployedContract, 'blockNumber'> & { blockNumber: number | null };
 
 export interface DeploymentRecord {
 	chainId: number;
@@ -38,8 +38,9 @@ export interface DeploymentRecord {
 	frostyCapUsd: string;
 	splitter?: SentRecord;
 	subscription?: SentRecord;
+	credits?: SentRecord;
 	tokens: TokenSpec[];
-	checkoutGasLimits: { approve: string; subscribeFor: string };
+	checkoutGasLimits: { approve: string; subscribeFor: string; buyCredits?: string };
 }
 
 export interface DeployAndRecordParams {

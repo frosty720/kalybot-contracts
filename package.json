@@ -7,7 +7,9 @@
 		"compile": "hardhat compile",
 		"test": "hardhat test",
 		"deploy:kalychain": "hardhat run scripts/deploy.ts --network kalychain",
-		"rehearse:kalychain": "KALYCHAIN_FORK=1 hardhat run scripts/rehearse.ts"
+		"rehearse:kalychain": "KALYCHAIN_FORK=1 hardhat run scripts/rehearse.ts",
+		"deploy:credits": "hardhat run scripts/deploy-credits.ts --network kalychain",
+		"rehearse:credits": "KALYCHAIN_FORK=1 hardhat run scripts/rehearse-credits.ts"
 	},
 	"devDependencies": {
 		"@nomicfoundation/hardhat-toolbox": "^5.0.0",
