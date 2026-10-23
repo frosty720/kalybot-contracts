@@ -26,7 +26,7 @@ export function validateDeployInputs(inputs: DeployInputs): void {
 }
 
 export interface DeployedContract {
-	name: 'splitter' | 'subscription';
+	name: 'splitter' | 'subscription' | 'credits';
 	address: string;
 	txHash: string;
 	blockNumber: number;

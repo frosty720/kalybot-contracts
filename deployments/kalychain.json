@@ -1,0 +1,38 @@
+{
+	"chainId": 3890,
+	"status": "configured",
+	"deployer": "0xaE51f2EfE70e57b994BE8F7f97C4dC824c51802a",
+	"owner": "0xaE51f2EfE70e57b994BE8F7f97C4dC824c51802a",
+	"frostyPayee": "0xaE51f2EfE70e57b994BE8F7f97C4dC824c51802a",
+	"bossPayee": "0x12BA3F424d630A583BdBCa56b0c1A0a7C1d7D66e",
+	"frostyBps": 6000,
+	"frostyCapUsd": "5000000000000000000000",
+	"tokens": [
+		{
+			"address": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+			"symbol": "USDT",
+			"decimals": 6
+		},
+		{
+			"address": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+			"symbol": "KUSD",
+			"decimals": 18
+		}
+	],
+	"checkoutGasLimits": {
+		"approve": "71000",
+		"subscribeFor": "400000"
+	},
+	"splitter": {
+		"name": "splitter",
+		"address": "0x5E0B40532772C80764A9A577b5dB0555d485F85e",
+		"txHash": "0x084c98a074d7819c42ea498f1758ced87d181f1882c77e60b127d4ca39e73806",
+		"blockNumber": 2383181
+	},
+	"subscription": {
+		"name": "subscription",
+		"address": "0x49d40C978fF10c527b36811d13ce0Ec40ebEc3Cc",
+		"txHash": "0x07a09958086e48a4f50f03e04f73e9dcc93d2bc4ddfbbc56d2033005ad75b460",
+		"blockNumber": 2383182
+	}
+}

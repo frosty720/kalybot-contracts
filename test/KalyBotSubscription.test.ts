@@ -158,12 +158,57 @@ describe('KalyBotSubscription', () => {
 		expect(await kusd.balanceOf(frosty.address)).to.equal(294n * 10n ** 17n);
 	});
 
-	it('rejects a reused orderRef even for another instance', async () => {
+	it('rejects a reused (orderRef, instance, tier, period)', async () => {
 		const { sub, usdt, payer } = await loadFixture(deployFixture);
 		const token = await usdt.getAddress();
 		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, token, order('1'));
-		await expect(sub.connect(payer).subscribeFor(instance('other'), PRO, MONTHLY, token, order('1')))
+		await expect(sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, token, order('1')))
 			.to.be.revertedWithCustomError(sub, 'OrderRefUsed');
+	});
+
+	it('a front-runner copying only the orderRef with another instance, tier or period does not block the customer', async () => {
+		const { sub, usdt, payer, stranger } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await usdt.mint(stranger.address, USDT(1000n));
+		await usdt.connect(stranger).approve(await sub.getAddress(), ethers.MaxUint256);
+		await sub.connect(stranger).subscribeFor(instance('attacker'), STARTER, MONTHLY, token, order('victim'));
+		await sub.connect(stranger).subscribeFor(instance('customer'), STARTER, MONTHLY, token, order('victim'));
+		await sub.connect(stranger).subscribeFor(instance('customer'), PRO, MONTHLY, token, order('victim'));
+
+		await expect(sub.connect(payer).subscribeFor(instance('customer'), PRO, ANNUAL, token, order('victim')))
+			.to.emit(sub, 'Subscribed');
+		expect((await sub.getSubscription(instance('customer')))[0]).to.equal(PRO);
+	});
+
+	it('an exact copy pays for and extends the customer\u2019s instance; the customer\u2019s own tx then reverts OrderRefUsed and is not charged', async () => {
+		const { sub, usdt, payer, stranger } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await usdt.mint(stranger.address, USDT(1000n));
+		await usdt.connect(stranger).approve(await sub.getAddress(), ethers.MaxUint256);
+		const customerBefore = await usdt.balanceOf(payer.address);
+		const strangerBefore = await usdt.balanceOf(stranger.address);
+
+		await expect(sub.connect(stranger).subscribeFor(instance('customer'), PRO, MONTHLY, token, order('victim')))
+			.to.emit(sub, 'Subscribed');
+
+		const [tier, expiry, active] = await sub.getSubscription(instance('customer'));
+		expect(tier).to.equal(PRO);
+		expect(active).to.equal(true);
+		expect(expiry).to.equal(BigInt(await time.latest()) + 30n * DAY);
+		expect(strangerBefore - (await usdt.balanceOf(stranger.address))).to.equal(USDT(49n));
+		await expect(sub.connect(payer).subscribeFor(instance('customer'), PRO, MONTHLY, token, order('victim')))
+			.to.be.revertedWithCustomError(sub, 'OrderRefUsed');
+		expect(await usdt.balanceOf(payer.address)).to.equal(customerBefore);
+	});
+
+	it('orderPaid reports a paid (orderRef, instance, tier, period) and nothing else', async () => {
+		const { sub, usdt, payer } = await loadFixture(deployFixture);
+		await sub.connect(payer).subscribeFor(instance('acme'), PRO, MONTHLY, await usdt.getAddress(), order('1'));
+		expect(await sub.orderPaid(order('1'), instance('acme'), PRO, MONTHLY)).to.equal(true);
+		expect(await sub.orderPaid(order('1'), instance('acme'), PRO, ANNUAL)).to.equal(false);
+		expect(await sub.orderPaid(order('1'), instance('acme'), STARTER, MONTHLY)).to.equal(false);
+		expect(await sub.orderPaid(order('1'), instance('other'), PRO, MONTHLY)).to.equal(false);
+		expect(await sub.orderPaid(order('2'), instance('acme'), PRO, MONTHLY)).to.equal(false);
 	});
 
 	it('rejects a zero orderRef and a zero instanceId', async () => {
