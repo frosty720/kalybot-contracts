@@ -38,7 +38,7 @@ export interface DeploymentRecord {
 	frostyCapUsd: string;
 	splitter?: SentRecord;
 	subscription?: SentRecord;
-	credits?: SentRecord;
+	credits?: SentRecord & { prices?: { packId: number; token: string; price: string }[] };
 	tokens: TokenSpec[];
 	checkoutGasLimits: { approve: string; subscribeFor: string; buyCredits?: string };
 }

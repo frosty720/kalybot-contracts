@@ -8,7 +8,7 @@ async function main(): Promise<void> {
 	const [deployer] = await ethers.getSigners();
 	if (!deployer) throw new Error('DEPLOYER_PRIVATE_KEY is not set');
 	const record = await deployCreditsAndRecord({ deployer, recordFile: RECORD_FILE });
-	console.log(`Done. ${record.owner} owns the credits contract. Control plane .env:`);
+	console.log(`Done. ${record.owner} owns the credits contract; all six pack prices are set and verified. Control plane .env:`);
 	console.log(`KALYBOT_CREDITS_ADDRESS=${record.credits!.address}`);
 	console.log(`KALYBOT_GAS_BUY_CREDITS=${record.checkoutGasLimits.buyCredits}`);
 }
