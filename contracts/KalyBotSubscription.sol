@@ -16,6 +16,8 @@ import {IKalyBotSplitter} from './interfaces/IKalyBotSplitter.sol';
 ///         tier change converts the remaining time at the monthly price ratio. Subscriptions are
 ///         keyed by the control plane's instance id, so any wallet can pay for any instance.
 /// @dev The on-chain expiry is informational; the control plane's paid_until is authoritative.
+///      The price is enforced on-chain and an order is bound to (orderRef, instance, tier, period), so a
+///      front-runner copying only the orderRef blocks nobody; an exact copy pays for the customer.
 contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 	using SafeERC20 for IERC20;
 
@@ -27,7 +29,7 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 
 	mapping(uint8 tier => mapping(uint8 period => mapping(address token => uint256 price))) public prices;
 	mapping(address token => bool) public splitterApproved;
-	mapping(bytes32 orderRef => bool) public usedOrderRef;
+	mapping(bytes32 paidKey => bool) private _paid;
 
 	struct Subscription {
 		uint8 tier;
@@ -75,9 +77,10 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 	{
 		if (instanceId == bytes32(0)) revert ZeroInstance();
 		if (orderRef == bytes32(0)) revert ZeroOrderRef();
-		if (usedOrderRef[orderRef]) revert OrderRefUsed();
+		bytes32 key = _paidKey(orderRef, instanceId, tier, period);
+		if (_paid[key]) revert OrderRefUsed();
 		uint256 price = _priceOf(tier, period, token);
-		usedOrderRef[orderRef] = true;
+		_paid[key] = true;
 
 		IERC20(token).safeTransferFrom(msg.sender, address(this), price);
 		Subscription storage sub = _subscriptions[instanceId];
@@ -90,6 +93,12 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 	}
 
 	// ── Views ──────────────────────────────────────────────────────────────
+
+	/// @notice Whether this exact (orderRef, instance, tier, period) has been paid. An orderRef copied
+	///         with another instance, tier or period is a different payment and blocks nobody.
+	function orderPaid(bytes32 orderRef, bytes32 instanceId, uint8 tier, uint8 period) external view returns (bool) {
+		return _paid[_paidKey(orderRef, instanceId, tier, period)];
+	}
 
 	function getSubscription(bytes32 instanceId) external view returns (uint8 tier, uint256 expiry, bool active) {
 		Subscription storage sub = _subscriptions[instanceId];
@@ -144,6 +153,10 @@ contract KalyBotSubscription is Ownable2Step, Pausable, ReentrancyGuard {
 	}
 
 	// ── Internal ───────────────────────────────────────────────────────────
+
+	function _paidKey(bytes32 orderRef, bytes32 instanceId, uint8 tier, uint8 period) internal pure returns (bytes32) {
+		return keccak256(abi.encode(orderRef, instanceId, tier, period));
+	}
 
 	function _checkTier(uint8 tier) internal pure {
 		if (tier == 0 || tier > MAX_TIER) revert InvalidTier();
