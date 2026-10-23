@@ -21,7 +21,8 @@
 	],
 	"checkoutGasLimits": {
 		"approve": "71000",
-		"subscribeFor": "400000"
+		"subscribeFor": "400000",
+		"buyCredits": "364000"
 	},
 	"splitter": {
 		"name": "splitter",
@@ -30,6 +31,148 @@
 		"blockNumber": 2383181
 	},
 	"subscription": {
+		"name": "subscription",
+		"address": "0x96f86c8183A09724D6128948B63639f335de283c",
+		"txHash": "0x1b2cd4bd652456bc522dc68eca2e68f88de824b54f51258a300ae8b91fea04f7",
+		"blockNumber": 2732241,
+		"prices": [
+			{
+				"tier": 1,
+				"period": 0,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "19000000"
+			},
+			{
+				"tier": 1,
+				"period": 1,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "180000000"
+			},
+			{
+				"tier": 2,
+				"period": 0,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "49000000"
+			},
+			{
+				"tier": 2,
+				"period": 1,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "468000000"
+			},
+			{
+				"tier": 3,
+				"period": 0,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "99000000"
+			},
+			{
+				"tier": 3,
+				"period": 1,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "948000000"
+			},
+			{
+				"tier": 4,
+				"period": 0,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "199000000"
+			},
+			{
+				"tier": 4,
+				"period": 1,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "1908000000"
+			},
+			{
+				"tier": 1,
+				"period": 0,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "19000000000000000000"
+			},
+			{
+				"tier": 1,
+				"period": 1,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "180000000000000000000"
+			},
+			{
+				"tier": 2,
+				"period": 0,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "49000000000000000000"
+			},
+			{
+				"tier": 2,
+				"period": 1,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "468000000000000000000"
+			},
+			{
+				"tier": 3,
+				"period": 0,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "99000000000000000000"
+			},
+			{
+				"tier": 3,
+				"period": 1,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "948000000000000000000"
+			},
+			{
+				"tier": 4,
+				"period": 0,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "199000000000000000000"
+			},
+			{
+				"tier": 4,
+				"period": 1,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "1908000000000000000000"
+			}
+		]
+	},
+	"credits": {
+		"name": "credits",
+		"address": "0x1E978834AA66a3a1308D08ED45B059A65a82Fb8e",
+		"txHash": "0xf85c66c243d2e51a3a6214817037b801ddceecc26cb3f1fa8024ca8855451b5c",
+		"blockNumber": 2732229,
+		"prices": [
+			{
+				"packId": 1,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "5000000"
+			},
+			{
+				"packId": 2,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "10000000"
+			},
+			{
+				"packId": 3,
+				"token": "0x6318EcDbae6B469D39C38949eDC671f4bA8A6172",
+				"price": "25000000"
+			},
+			{
+				"packId": 1,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "5000000000000000000"
+			},
+			{
+				"packId": 2,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "10000000000000000000"
+			},
+			{
+				"packId": 3,
+				"token": "0xFDb3307a16442ed5A7C040AE1600a3B3D3C8e7D9",
+				"price": "25000000000000000000"
+			}
+		]
+	},
+	"subscriptionPrevious": {
 		"name": "subscription",
 		"address": "0x49d40C978fF10c527b36811d13ce0Ec40ebEc3Cc",
 		"txHash": "0x07a09958086e48a4f50f03e04f73e9dcc93d2bc4ddfbbc56d2033005ad75b460",
