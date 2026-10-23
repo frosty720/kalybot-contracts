@@ -13,7 +13,7 @@ export const CREDIT_PACK_PRICES_USD: Record<number, number> = { 1: 5, 2: 10, 3: 
  * also approves the splitter. test/deployCredits.test.ts fails if usage exceeds a limit or a limit
  * exceeds 2× the heaviest use of its kind.
  */
-export const CREDITS_DEPLOY_GAS_LIMITS = { deploy: 1_200_000n, setPrice: 148_000n };
+export const CREDITS_DEPLOY_GAS_LIMITS = { deploy: 1_246_000n, setPrice: 148_000n };
 
 /**
  * Fallback gas limit for the checkout's buyCredits, used only when live estimation fails. ~1.5× the

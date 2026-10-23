@@ -154,6 +154,19 @@ describe('deployCreditsAndRecord', () => {
 		await expect(verifyPrices(credits, expectedPrices(base.tokens))).to.be.rejectedWith(/Price for pack 2 .* is 0, expected 10000000/);
 	});
 
+	it('refuses to finish when a price read back is wrong, leaving no recorded prices', async () => {
+		const { deployer, recordFile, record } = await deployBase();
+		const usdtSpec = record.tokens[0];
+		writeFileSync(recordFile, JSON.stringify({ ...record, tokens: [...record.tokens, { ...usdtSpec, decimals: 18 }] }));
+
+		await expect(deployCreditsAndRecord({ deployer, recordFile, gasLimits: creditsGasLimits })).to.be.rejectedWith(/Price for pack 1 .* is 5000000000000000000, expected 5000000/);
+
+		const saved = readRecord(recordFile);
+		expect(saved.credits!.prices).to.equal(undefined);
+		const credits = await ethers.getContractAt('KalyBotCredits', saved.credits!.address);
+		expect(await credits.prices(1, usdtSpec.address)).to.equal(5n * 10n ** 18n);
+	});
+
 	it('every setPrice carries an explicit gas limit that covers real use and is at most 2x it', async function () {
 		if (COVERAGE) this.skip();
 		const { deployer, recordFile } = await deployBase();

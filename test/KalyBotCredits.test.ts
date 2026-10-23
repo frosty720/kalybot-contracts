@@ -56,7 +56,7 @@ describe('KalyBotCredits', () => {
 		await expect(credits.connect(payer).buyCredits(instance('acme'), 2, token, order('1')))
 			.to.emit(credits, 'CreditsBought')
 			.withArgs(instance('acme'), payer.address, 2, token, USDT(10n), order('1'));
-		expect(await credits.usedOrderRef(order('1'))).to.equal(true);
+		expect(await credits.orderPaid(order('1'), instance('acme'), 2)).to.equal(true);
 	});
 
 	it('a front-runner using a customer\u2019s orderRef pays the full price and credits the customer\u2019s instance', async () => {
@@ -76,6 +76,30 @@ describe('KalyBotCredits', () => {
 		expect(await usdt.balanceOf(payer.address)).to.equal(customerBefore);
 	});
 
+	it('a front-runner copying only the orderRef with another instance or pack does not block the customer', async () => {
+		const { credits, usdt, payer, stranger } = await loadFixture(deployFixture);
+		const token = await usdt.getAddress();
+		await usdt.mint(stranger.address, USDT(100n));
+		await usdt.connect(stranger).approve(await credits.getAddress(), ethers.MaxUint256);
+		await expect(credits.connect(stranger).buyCredits(instance('attacker'), 1, token, order('victim')))
+			.to.emit(credits, 'CreditsBought')
+			.withArgs(instance('attacker'), stranger.address, 1, token, USDT(5n), order('victim'));
+
+		await expect(credits.connect(payer).buyCredits(instance('customer'), 3, token, order('victim')))
+			.to.emit(credits, 'CreditsBought')
+			.withArgs(instance('customer'), payer.address, 3, token, USDT(25n), order('victim'));
+		await expect(credits.connect(stranger).buyCredits(instance('customer'), 1, token, order('victim'))).to.not.be.reverted;
+	});
+
+	it('orderPaid reports a paid (orderRef, instance, pack) and nothing else', async () => {
+		const { credits, usdt, payer } = await loadFixture(deployFixture);
+		await credits.connect(payer).buyCredits(instance('acme'), 1, await usdt.getAddress(), order('1'));
+		expect(await credits.orderPaid(order('1'), instance('acme'), 1)).to.equal(true);
+		expect(await credits.orderPaid(order('1'), instance('acme'), 2)).to.equal(false);
+		expect(await credits.orderPaid(order('1'), instance('other'), 1)).to.equal(false);
+		expect(await credits.orderPaid(order('2'), instance('acme'), 1)).to.equal(false);
+	});
+
 	it('rejects pack 0 (InvalidPack) and an unpriced pack or token (PackNotConfigured)', async () => {
 		const { credits, usdt, payer } = await loadFixture(deployFixture);
 		const token = await usdt.getAddress();
@@ -85,7 +109,7 @@ describe('KalyBotCredits', () => {
 			.to.be.revertedWithCustomError(credits, 'PackNotConfigured');
 		await expect(credits.connect(payer).buyCredits(instance('acme'), 1, ethers.Wallet.createRandom().address, order('1')))
 			.to.be.revertedWithCustomError(credits, 'PackNotConfigured');
-		expect(await credits.usedOrderRef(order('1'))).to.equal(false);
+		expect(await credits.orderPaid(order('1'), instance('acme'), 1)).to.equal(false);
 	});
 
 	it('rejects a zero instance, a zero orderRef and a reused orderRef', async () => {
@@ -96,7 +120,7 @@ describe('KalyBotCredits', () => {
 		await expect(credits.connect(payer).buyCredits(instance('acme'), 1, token, ethers.ZeroHash))
 			.to.be.revertedWithCustomError(credits, 'ZeroOrderRef');
 		await credits.connect(payer).buyCredits(instance('acme'), 1, token, order('1'));
-		await expect(credits.connect(payer).buyCredits(instance('other'), 1, token, order('1')))
+		await expect(credits.connect(payer).buyCredits(instance('acme'), 1, token, order('1')))
 			.to.be.revertedWithCustomError(credits, 'OrderRefUsed');
 	});
 
@@ -146,7 +170,7 @@ describe('KalyBotCredits', () => {
 		await credits.setPrice(1, await other.getAddress(), USDT(5n));
 		await expect(credits.connect(payer).buyCredits(instance('acme'), 1, await other.getAddress(), order('1')))
 			.to.be.revertedWithCustomError(splitter, 'TokenNotAccepted');
-		expect(await credits.usedOrderRef(order('1'))).to.equal(false);
+		expect(await credits.orderPaid(order('1'), instance('acme'), 1)).to.equal(false);
 	});
 
 	it('refuses payments while paused; owner-only pause/unpause/rescue; rescue sends a stray token to the given address', async () => {

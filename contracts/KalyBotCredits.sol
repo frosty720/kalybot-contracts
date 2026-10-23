@@ -13,7 +13,8 @@ import {IKalyBotSplitter} from './interfaces/IKalyBotSplitter.sol';
 ///         and forwarded to the splitter in the same transaction (this contract never keeps funds).
 ///         Any wallet can pay for any instance, at the owner-set price of the pack.
 /// @dev The price is enforced on-chain, so a front-runner who copies a pending `orderRef` must pay
-///      the full price and the credits still go to the instance named in the event (spec §14 H-A).
+///      the full price and the credits still go to the instance named in the event; the order is bound to
+///      (orderRef, instance, pack), so copying only the orderRef blocks nobody (spec §14 H-A).
 contract KalyBotCredits is Ownable2Step, Pausable, ReentrancyGuard {
 	using SafeERC20 for IERC20;
 
@@ -22,7 +23,7 @@ contract KalyBotCredits is Ownable2Step, Pausable, ReentrancyGuard {
 	/// @notice Price of a pack in token units; 0 means the pack is not sold in that token.
 	mapping(uint8 packId => mapping(address token => uint256)) public prices;
 	mapping(address token => bool) public splitterApproved;
-	mapping(bytes32 orderRef => bool) public usedOrderRef;
+	mapping(bytes32 paidKey => bool) private _paid;
 
 	event CreditsBought(
 		bytes32 indexed instanceId,
@@ -60,13 +61,20 @@ contract KalyBotCredits is Ownable2Step, Pausable, ReentrancyGuard {
 		if (instanceId == bytes32(0)) revert ZeroInstance();
 		if (orderRef == bytes32(0)) revert ZeroOrderRef();
 		uint256 price = _priceOf(packId, token);
-		if (usedOrderRef[orderRef]) revert OrderRefUsed();
-		usedOrderRef[orderRef] = true;
+		bytes32 key = _paidKey(orderRef, instanceId, packId);
+		if (_paid[key]) revert OrderRefUsed();
+		_paid[key] = true;
 
 		IERC20(token).safeTransferFrom(msg.sender, address(this), price);
 		splitter.split(token, price);
 
 		emit CreditsBought(instanceId, msg.sender, packId, token, price, orderRef);
+	}
+
+	/// @notice Whether this exact (orderRef, instance, pack) has been paid. An orderRef copied with
+	///         another instance or pack is a different payment and blocks nobody.
+	function orderPaid(bytes32 orderRef, bytes32 instanceId, uint8 packId) external view returns (bool) {
+		return _paid[_paidKey(orderRef, instanceId, packId)];
 	}
 
 	// ── Owner ──────────────────────────────────────────────────────────────
@@ -100,6 +108,10 @@ contract KalyBotCredits is Ownable2Step, Pausable, ReentrancyGuard {
 	}
 
 	// ── Internal ───────────────────────────────────────────────────────────
+
+	function _paidKey(bytes32 orderRef, bytes32 instanceId, uint8 packId) internal pure returns (bytes32) {
+		return keccak256(abi.encode(orderRef, instanceId, packId));
+	}
 
 	function _priceOf(uint8 packId, address token) internal view returns (uint256 price) {
 		if (packId == 0) revert InvalidPack();

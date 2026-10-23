@@ -86,7 +86,7 @@ async function rehearseBuy(creditsAddress: string, splitterAddress: string, toke
 	check(bossAfter - bossBefore === amount - expectedToFrosty, `boss payee received ${ethers.formatUnits(amount - expectedToFrosty, token.decimals)} ${token.symbol}`);
 	check(paidAfter - paidBefore === expectedFrostyUsd, `frostyPaidUsd rose by $${ethers.formatEther(expectedFrostyUsd)} (min of $3 and the cap room left)`);
 	check((await erc20.balanceOf(creditsAddress)) === 0n, `credits contract holds no ${token.symbol}`);
-	check((await credits.usedOrderRef(orderRef)) && (await credits.splitterApproved(token.address)), `${token.symbol} order marked used and splitter approved`);
+	check((await credits.orderPaid(orderRef, instanceId, PACK_ID)) && (await credits.splitterApproved(token.address)), `${token.symbol} order marked used and splitter approved`);
 }
 
 async function main(): Promise<void> {
